@@ -1,14 +1,18 @@
 # Базовый MVP работает на стандартной библиотеке Python 3.11+.
 
 # --- Голос (XTTS v2, клонирование голоса Джарвиса) ---
-# Установка (тяжёлые ML-зависимости, ставим по необходимости):
-#   .venv/bin/pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# Проверенная рабочая связка (macOS arm64, Python 3.11):
+#   .venv/bin/pip install torch==2.5.1 torchaudio==2.5.1
 #   .venv/bin/pip install coqui-tts
-# ИЛИ (macOS/Windows, prebuilt wheels):
-#   .venv/bin/pip install coqui-tts[cpu]
-# coqui-tts>=0.27.0
-# torch>=2.2
-# torchaudio>=2.2.0
+#   .venv/bin/pip install "transformers<5"
+# Важно:
+#   - torch >= 2.9 требует torchcodec + системный FFmpeg (лишняя возня) — берём 2.5.1.
+#   - transformers 5.x ломает coqui-tts (удалён isin_mps_friendly) — берём <5.
+#   - вокодер XTTS на Apple Silicon падает на MPS, поэтому синтез идёт на CPU.
+coqui-tts>=0.27.0
+torch==2.5.1
+torchaudio==2.5.1
+transformers<5
 
 # --- Speech-to-Text (локально, следующий этап) ---
 # faster-whisper>=1.0.0

@@ -190,8 +190,14 @@ jarvis/
 
 ### 9.3. Установка зависимостей (macOS arm64)
 ```bash
-.venv/bin/pip install torch torchaudio
+.venv/bin/pip install torch==2.5.1 torchaudio==2.5.1
 .venv/bin/pip install coqui-tts
+.venv/bin/pip install "transformers<5"
 ```
-> При первом запуске XTTS скачивает веса модели (~1.7 ГБ) в локальный кэш.
-> Устройство выбирается автоматически: MPS (Apple Silicon) или CPU.
+> При первом запуске XTTS скачивает веса модели (~1.87 ГБ) в `.cache/tts`.
+
+### 9.4. Проверенные ограничения (важно)
+- **torch 2.5.1, а не 2.9+:** на torch >= 2.9 coqui-tts требует `torchcodec`, который тянет системный FFmpeg (`libavutil`). На 2.5.1 используется `torchaudio`, лишний FFmpeg не нужен.
+- **transformers < 5:** transformers 5.x удалил `transformers.pytorch_utils.isin_mps_friendly`, из-за чего падает импорт XTTS. Рабочая версия 4.57.x.
+- **Синтез на CPU:** вокодер XTTS на Apple Silicon падает на MPS (`Output channels > 65536 not supported`), поэтому в `tts.py` зафиксирован `device="cpu"`. Модель грузится ~20-25 с (один раз, в фоне), синтез короткой фразы ~4-7 с.
+- Модель кэшируется в `.cache/tts` (добавлено в `.gitignore`), `voice.mp3` — личный голос, не коммитится.

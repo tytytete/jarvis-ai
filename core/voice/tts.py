@@ -17,6 +17,14 @@ log = get_logger("tts")
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_VOICE = os.path.join(ROOT_DIR, "voice.mp3")
 
+# Кэш моделей XTTS и matplotlib — в локальную папку проекта (без прав на системные каталоги).
+_CACHE_DIR = os.path.join(ROOT_DIR, ".cache")
+os.environ.setdefault("TTS_HOME", os.path.join(_CACHE_DIR, "tts"))
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(_CACHE_DIR, "mpl"))
+# XTTS-v2 требует согласия с лицензией Coqui (CPML); при первом скачивании
+# не блокируемся на интерактивном вопросе.
+os.environ.setdefault("COQUI_TOS_AGREED", "1")
+
 _engine = None
 _engine_failed = False
 _engine_lock = threading.Lock()
@@ -44,11 +52,9 @@ class _XttsEngine:
             log.warning("XTTS: нет torch/coqui-tts — %s", exc)
             return False
         try:
-            device = (
-                "mps"
-                if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available()
-                else "cpu"
-            )
+            # Вокодер XTTS падает на MPS («Output channels > 65536 not supported»),
+            # поэтому стабильно работаем на CPU.
+            device = "cpu"
             self._tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
             self._device = device
             log.info("XTTS: модель загружена (device=%s)", device)
