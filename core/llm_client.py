@@ -43,6 +43,11 @@ class LLMClient:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
+            # Без User-Agent Cloudflare (anymodel.org) отдаёт 403 «error code: 1010».
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+            ),
         }
 
         last_error = "неизвестная ошибка"
