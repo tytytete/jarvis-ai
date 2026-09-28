@@ -18,3 +18,7 @@ venv/
 queue.jsonl
 *.answers
 .DS_Store
+
+# Личные аудио (голос Джарвиса) и кэш моделей
+voice.mp3
+*.wav

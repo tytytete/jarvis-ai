@@ -1,5 +1,8 @@
 {
   "tts_enabled": true,
+  "tts_engine": "auto",
+  "tts_reference_voice": "voice.mp3",
+  "tts_language": "ru",
   "language": "ru",
   "log_level": "INFO"
 }
