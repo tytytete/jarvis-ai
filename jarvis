@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Лаунчер Джарвиса: всегда использует venv с нужными зависимостями.
+cd "$(dirname "$0")" || exit 1
+
+if [ ! -x ".venv/bin/python" ]; then
+  echo "❌ Окружение не найдено. Создай его:" >&2
+  echo "   /opt/homebrew/bin/python3.11 -m venv .venv" >&2
+  echo "   .venv/bin/pip install torch==2.5.1 torchaudio==2.5.1 coqui-tts 'transformers<5'" >&2
+  exit 1
+fi
+
+exec .venv/bin/python main.py "$@"

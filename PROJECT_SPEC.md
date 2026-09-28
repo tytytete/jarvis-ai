@@ -128,12 +128,14 @@ jarvis/
 
 ### 7.4. Быстрый старт
 ```bash
-/opt/homebrew/bin/python3.11 -m venv .venv
-.venv/bin/python main.py            # интерактивный REPL
-.venv/bin/python main.py "открой терминал"
-.venv/bin/python main.py --ask "какая сегодня погода?"
-.venv/bin/python main.py --daemon queue.txt   # фон: пиши в queue.txt, ответы в queue.txt.answers
+./jarvis                    # интерактивный REPL (лаунчер сам подхватит .venv)
+./jarvis "открой терминал"
+./jarvis --ask "какая сегодня погода?"
+./jarvis --daemon queue.txt # фон: пиши в queue.txt, ответы в queue.txt.answers
 ```
+> Всегда запускай через `./jarvis` (или `.venv/bin/python main.py`), а не через
+> системный `python3`: системный Python 3.9 не содержит `torch`, и тогда голос
+> Джарвиса молча подменяется системным `say` (голос Siri).
 
 ### 7.5. Защита от опечаток в Fast-Path
 Ведущий глагол команды нормализуется по словарю синонимов + фаззи-сравнение
