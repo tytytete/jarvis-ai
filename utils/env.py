@@ -1,7 +1,7 @@
 import os
 
 
-def load_env(path: str | None = None) -> None:
+def load_env(path=None):
     """Минимальный загрузчик .env (без сторонних зависимостей)."""
     if path is None:
         path = os.path.join(
