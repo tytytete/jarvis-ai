@@ -8,6 +8,7 @@
   python main.py --daemon queue.txt       фоновый режим (читает очередь из файла)
 """
 import argparse
+import datetime
 import os
 import time
 
@@ -21,12 +22,26 @@ from core.llm_client import LLMClient  # noqa: E402
 from core.router import Router  # noqa: E402
 from core.system_mac import MacSystem  # noqa: E402
 from core.voice.tts import speak  # noqa: E402
+from utils.simple_math import evaluate_math  # noqa: E402
 
 log = get_logger("main")
 
 SYSTEM_PROMPT = (
     "Ты — Джарвис, персональный ИИ-ассистент на компьютере пользователя. "
     "Отвечай кратко, по-русски и по делу."
+)
+
+HELP_TEXT = (
+    "Я умею (локально, без нейросети):\n"
+    "- «открой Safari» / «запусти хром» / «включи музыку» — открыть приложение\n"
+    "- «закрой Discord» / «выключи Telegram» — закрыть приложение\n"
+    "- «открой файл отчёт» / «открой report.pdf» — найти и открыть файл\n"
+    "- «открой сайт github.com» / «перейди на youtube.com» — открыть сайт\n"
+    "- «загугли погода в кишинёве» — поиск в интернете\n"
+    "- «громче» / «тише» / «выключи звук» / «включи звук»\n"
+    "- «ярче» / «темнее» / «скриншот» / «заблокируй экран» / «спи»\n"
+    "- «который час» / «какое сегодня число» / «сколько будет 12*7»\n"
+    "Любой другой вопрос уходит нейросети (Slow-Path)."
 )
 
 
@@ -45,32 +60,67 @@ def dispatch(text, llm, router, system, settings, voice=True):
     intent = result["intent"]
     if intent == Router.INTENT_EXIT:
         return None
-
     if intent == Router.INTENT_HELP:
-        return (
-            "Я умею (локально, без нейросети):\n"
-            "- «открой Safari» / «запусти терминал» — открыть приложение\n"
-            "- «открой файл отчёт» — найти и открыть файл\n"
-            "- «громче» / «тише» / «выключи звук»\n"
-            "Любой другой вопрос уходит нейросети (Slow-Path)."
-        )
+        return HELP_TEXT
 
-    target = result.get("target", "")
+    # Ответы без обращения к системе
+    if intent == Router.INTENT_TIME:
+        return "Сейчас " + datetime.datetime.now().strftime("%H:%M") + "."
+    if intent == Router.INTENT_DATE:
+        return "Сегодня " + datetime.datetime.now().strftime("%d.%m.%Y") + "."
+    if intent == Router.INTENT_MATH:
+        value = evaluate_math(result.get("expression", ""))
+        if value is None:
+            return "Не смог посчитать «%s» — проверь выражение." % result.get("expression", "")
+        return "Результат: %s." % value
+
+    # Действия через system
     ok = False
+    detail = ""
     if intent == Router.INTENT_OPEN_APP:
-        ok = system.open_application(target)
+        detail = result.get("target", "")
+        ok = system.open_application(detail)
+    elif intent == Router.INTENT_CLOSE_APP:
+        detail = result.get("target", "")
+        ok = system.close_application(detail)
     elif intent == Router.INTENT_OPEN_FILE:
-        ok = system.open_file(target)
+        detail = result.get("target", "")
+        ok = system.open_file(detail)
+    elif intent == Router.INTENT_OPEN_URL:
+        detail = result.get("target", "")
+        ok = system.open_url(detail)
+    elif intent == Router.INTENT_WEB_SEARCH:
+        from urllib.parse import quote
+        detail = "https://www.google.com/search?q=" + quote(result.get("query", ""))
+        ok = system.open_url(detail)
     elif intent == Router.INTENT_VOLUME_UP:
         ok = system.volume_up()
     elif intent == Router.INTENT_VOLUME_DOWN:
         ok = system.volume_down()
     elif intent == Router.INTENT_MUTE:
         ok = system.mute()
+    elif intent == Router.INTENT_UNMUTE:
+        ok = system.unmute()
+    elif intent == Router.INTENT_BRIGHTNESS_UP:
+        ok = system.brightness_up()
+    elif intent == Router.INTENT_BRIGHTNESS_DOWN:
+        ok = system.brightness_down()
+    elif intent == Router.INTENT_SCREENSHOT:
+        path = system.screenshot()
+        if path:
+            return "Скриншот сохранён: %s" % path
+        return "Не удалось сделать скриншот."
+    elif intent == Router.INTENT_LOCK:
+        ok = system.lock_screen()
+    elif intent == Router.INTENT_SLEEP:
+        ok = system.sleep()
+    elif intent == Router.INTENT_TYPE_TEXT:
+        ok = system.type_text(result.get("text", ""))
+        detail = result.get("text", "")
 
     if ok:
-        return f"Готово: {target or intent}."
-    return f"Не удалось выполнить «{target or intent}». Проверь название."
+        return "Готово: %s." % detail if detail else "Готово."
+    return "Не удалось выполнить «%s». Проверь название." % (detail or intent)
 
 
 def run_repl(llm, router, system, settings, voice):
@@ -97,7 +147,6 @@ def run_once(text, llm, router, system, settings, voice):
 
 
 def run_daemon(queue_path, llm, router, system, settings, voice):
-    """Фоновый режим: читает новые строки из очереди, пишет ответы в <очередь>.answers."""
     answers_path = queue_path + ".answers"
     log.info("daemon: очередь=%s ответы=%s", queue_path, answers_path)
     seen = 0
@@ -119,7 +168,7 @@ def run_daemon(queue_path, llm, router, system, settings, voice):
                     continue
                 answer = dispatch(line, llm, router, system, settings, voice=voice)
                 with open(answers_path, "a", encoding="utf-8") as f:
-                    f.write(f"Q: {line}\nA: {answer}\n\n")
+                    f.write("Q: %s\nA: %s\n\n" % (line, answer))
         except Exception:
             log.exception("daemon error")
             time.sleep(2.0)

@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 
 from .system_base import BaseSystem
@@ -10,8 +11,6 @@ APP_DIRS = [
     os.path.expanduser("~/Applications"),
 ]
 
-# Фолбэк для файлов: быстрый `find` с таймаутом (без рекурсивного os.walk, который
-# может зависнуть на iCloud-каталогах). Documents обрабатывает Spotlight на обычной машине.
 FILE_SEARCH_ROOTS = [
     os.path.expanduser("~/Desktop"),
     os.path.expanduser("~/Downloads"),
@@ -31,25 +30,35 @@ class MacSystem(BaseSystem):
     def _osascript(self, script, timeout=10):
         return self._run(["osascript", "-e", script], timeout=timeout)[0]
 
+    # ---- приложения -------------------------------------------------------
+
     def open_application(self, name):
         name = name.strip().strip("\"'")
         if not name:
             return False
-        # Прямой путь, .app или путь с разделителем
         if name.endswith(".app") or os.path.exists(name) or "/" in name:
             if self._run(["open", name])[0]:
                 return True
-        # Попытка по имени через LaunchServices
         if self._run(["open", "-a", name])[0]:
             return True
-        # Поиск по Spotlight и стандартным каталогам, затем открытие по полному пути
         found = self.search_application(name)
         if found:
             return self._run(["open", found])[0]
         return False
 
+    def close_application(self, name):
+        name = name.strip().strip("\"'")
+        if not name:
+            return False
+        if name.endswith(".app") or "/" in name:
+            base = os.path.basename(name)
+            if base.endswith(".app"):
+                name = base[:-4]
+        if self._osascript(f'quit app "{name}"'):
+            return True
+        return self._osascript(f'tell application "{name}" to quit')
+
     def search_application(self, name):
-        # 1) Spotlight (может быть отключён)
         query = f'kMDItemKind == "Application" && kMDItemDisplayName == "*{name}*"c'
         ok, out, _ = self._run(["mdfind", query])
         if ok:
@@ -57,7 +66,6 @@ class MacSystem(BaseSystem):
                 line = line.strip()
                 if line:
                     return line
-        # 2) Фолбэк: скан стандартных каталогов приложений
         return self._scan_app_dirs(name)
 
     def _scan_app_dirs(self, name):
@@ -79,6 +87,8 @@ class MacSystem(BaseSystem):
                     return os.path.join(directory, entry)
         return None
 
+    # ---- файлы / URL ------------------------------------------------------
+
     def open_file(self, query):
         query = query.strip().strip("\"'")
         if not query:
@@ -91,13 +101,11 @@ class MacSystem(BaseSystem):
         return False
 
     def search_files(self, query, limit=5):
-        # 1) Spotlight (основной механизм macOS)
         ok, out, _ = self._run(["mdfind", "-name", query])
         if ok:
             results = [line for line in out.splitlines() if line.strip()]
             if results:
                 return results[:limit]
-        # 2) Фолбэк: find по Desktop/Downloads с жёстким таймаутом
         results = []
         for root in FILE_SEARCH_ROOTS:
             if not os.path.isdir(root):
@@ -116,6 +124,16 @@ class MacSystem(BaseSystem):
                         return results
         return results
 
+    def open_url(self, url):
+        url = url.strip().strip("\"'")
+        if not url:
+            return False
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", url):
+            url = "https://" + url
+        return self._run(["open", url])[0]
+
+    # ---- звук / яркость ---------------------------------------------------
+
     def volume_up(self, step=10):
         return self._osascript(
             f"set volume output volume (output volume of (get volume settings) + {step})"
@@ -128,3 +146,35 @@ class MacSystem(BaseSystem):
 
     def mute(self):
         return self._osascript("set volume with output muted")
+
+    def unmute(self):
+        return self._osascript("set volume without output muted")
+
+    def brightness_up(self):
+        return self._osascript('tell application "System Events" to key code 113')
+
+    def brightness_down(self):
+        return self._osascript('tell application "System Events" to key code 107')
+
+    # ---- система ----------------------------------------------------------
+
+    def screenshot(self):
+        import datetime
+        path = os.path.expanduser(
+            "~/Desktop/screenshot_%s.png" % datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        )
+        ok, _, _ = self._run(["screencapture", "-x", path])
+        return path if ok else None
+
+    def lock_screen(self):
+        return self._osascript(
+            'tell application "System Events" to keystroke "q" using {control down, command down}'
+        )
+
+    def sleep(self):
+        return self._run(["pmset", "sleepnow"])[0]
+
+    def type_text(self, text):
+        # Экранируем кавычки/бэкслеши для AppleScript-строки
+        escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+        return self._osascript(f'tell application "System Events" to keystroke "{escaped}"')

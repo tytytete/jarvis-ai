@@ -113,8 +113,8 @@ jarvis/
 ### 7.2. Реализовано (MVP)
 - [x] Инициализация Git-репозитория, `.gitignore` (секреты не коммитятся), `venv`.
 - [x] Каркас проекта: `main.py`, `core/`, `config/`, `utils/`.
-- [x] **Fast-Path** `core/router.py`: regex/NLU-детект «открой/запусти <приложение>», «открой файл <имя>», «громче/тише/выключи звук», «помощь», «стоп». 0 токенов.
-- [x] `core/system_mac.py`: открытие приложений (LaunchServices + скан `/Applications`, `/System/Applications`, `~/Applications`), открытие файлов (Spotlight `mdfind` + фолбэк `find`), управление громкостью (`osascript`).
+- [x] **Fast-Path** `core/router.py`: расширенный набор команд + допуск опечаток в ведущем глаголе (фаззи + карта опечаток). Интенты: открыть/закрыть приложение, открыть файл/URL, веб-поиск, громкость/яркость/звук, скриншот, блокировка, сон, время/дата, локальная арифметика, ввод текста, помощь, выход. 0 токенов.
+- [x] `core/system_mac.py`: приложения (LaunchServices + скан `/Applications`, `/System/Applications`, `~/Applications`), закрытие приложений (`osascript quit app`), файлы (Spotlight `mdfind` + фолбэк `find`), URL (`open`), звук/яркость/скриншот/блокировка/сон (`osascript`/`pmset`/`screencapture`).
 - [x] `core/llm_client.py`: вопрос → DeepSeek, ретраи/таймауты, корректная разборка Responses API, человекочитаемые ошибки.
 - [x] `core/voice/tts.py`: озвучка через macOS `say` (асинхронно, не блокирует).
 - [x] Режимы запуска: REPL, одиночная команда (`python main.py "..."`), вопрос (`--ask`), фоновый демон-очередь (`--daemon queue.txt`).
@@ -134,3 +134,9 @@ jarvis/
 .venv/bin/python main.py --ask "какая сегодня погода?"
 .venv/bin/python main.py --daemon queue.txt   # фон: пиши в queue.txt, ответы в queue.txt.answers
 ```
+
+### 7.5. Защита от опечаток в Fast-Path
+Ведущий глагол команды нормализуется по словарю синонимов + фаззи-сравнение
+(`difflib`, cutoff 0.82) + явная карта опечаток (`TYPO_MAP`). Глаголы разных
+интентов (например, «включи»/«выключи») защищены от кросс-подмены, чтобы не
+терять точность. Пример из сессии: `открткрой дискорд` → `open_app` (Discord).
