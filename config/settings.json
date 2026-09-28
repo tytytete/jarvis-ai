@@ -1,6 +1,7 @@
 {
   "tts_enabled": true,
-  "tts_engine": "auto",
+  "tts_engine": "say",
+  "tts_edge_voice": "ru-RU-DmitryNeural",
   "tts_reference_voice": "voice.mp3",
   "tts_language": "ru",
   "language": "ru",
