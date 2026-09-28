@@ -22,6 +22,7 @@ from core.llm_client import LLMClient  # noqa: E402
 from core.router import Router  # noqa: E402
 from core.system_mac import MacSystem  # noqa: E402
 from core.voice.tts import preload, speak  # noqa: E402
+from core.tools import TOOL_SPECS, execute_tool  # noqa: E402
 from utils.simple_math import evaluate_math  # noqa: E402
 
 log = get_logger("main")
@@ -52,7 +53,13 @@ def dispatch(text, llm, router, system, settings, history=None, voice=True):
 
     if not result["matched"]:
         log.info("slow-path: %s", text)
-        res = llm.ask(text, system_prompt=SYSTEM_PROMPT, history=history)
+        res = llm.ask(
+            text,
+            system_prompt=SYSTEM_PROMPT,
+            history=history,
+            tools=TOOL_SPECS,
+            tool_executor=execute_tool,
+        )
         answer = res["answer"] or res["error"] or "Нет ответа."
         if res["ok"]:
             history.append({"role": "user", "content": text})

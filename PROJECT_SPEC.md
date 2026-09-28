@@ -205,3 +205,27 @@ jarvis/
 - **transformers < 5:** transformers 5.x удалил `transformers.pytorch_utils.isin_mps_friendly`, из-за чего падает импорт XTTS. Рабочая версия 4.57.x.
 - **Синтез на CPU:** вокодер XTTS на Apple Silicon падает на MPS (`Output channels > 65536 not supported`), поэтому в `tts.py` зафиксирован `device="cpu"`. Модель грузится ~20-25 с (один раз, в фоне), синтез короткой фразы ~4-7 с.
 - Модель кэшируется в `.cache/tts` (добавлено в `.gitignore`), `voice.mp3` — личный голос, не коммитится.
+
+---
+
+## 10. Инструменты Slow-Path (Tool Calling)
+
+DeepSeek (`ds/deepseek-v4-flash` через anymodel.org) поддерживает **Function Calling**:
+модель сама решает, какой локальный инструмент вызвать, мы выполняем его и отдаём
+результат обратно — в финальном ответе модель использует факты из инструмента.
+
+### 10.1. Реализация
+- `core/tools.py`: схемы инструментов (`TOOL_SPECS`) + исполнитель `execute_tool(name, args)`.
+- `core/llm_client.py`: цикл tool calling (запрос → `function_call` → выполнение → `function_call_output` → повтор), лимит 5 циклов.
+- `main.py`: передаёт `TOOL_SPECS`/`execute_tool` в Slow-Path.
+
+### 10.2. Набор инструментов
+- `web_search` — поиск в интернете (DuckDuckGo, с ретраями и фолбэк-эндпоинтом).
+- `create_file` / `append_file` / `read_file` / `list_directory` — работа с файлами (пути от `~`).
+- `current_time` / `current_date` — время и дата.
+- `open_url` / `open_application` — браузер и приложения.
+- `calculate` — безопасная арифметика.
+- `run_shell` — выполнение shell-команды (использовать осторожно).
+
+### 10.3. Ограничение веб-поиска
+- DuckDuckGo HTML — бесплатный, без ключа, но иногда rate-limit (`Connection reset`). Поэтому в `web_search` два эндпоинта + ретраи; при полном сбое модель отвечает, что не смогла найти.
