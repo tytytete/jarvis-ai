@@ -154,3 +154,11 @@ def speak(text, block=False):
     if block:
         thread.join()
     return True
+
+
+def preload():
+    """Заранее (в фоне) загружает XTTS-модель, чтобы не ждать её на первом ответе."""
+    if shutil.which("say") is not None:
+        threading.Thread(target=_get_engine, daemon=True).start()
+        return True
+    return False

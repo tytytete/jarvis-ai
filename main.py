@@ -21,7 +21,7 @@ from core.config import load_settings  # noqa: E402
 from core.llm_client import LLMClient  # noqa: E402
 from core.router import Router  # noqa: E402
 from core.system_mac import MacSystem  # noqa: E402
-from core.voice.tts import speak  # noqa: E402
+from core.voice.tts import preload, speak  # noqa: E402
 from utils.simple_math import evaluate_math  # noqa: E402
 
 log = get_logger("main")
@@ -197,6 +197,9 @@ def main(argv=None):
     router = Router()
     system = MacSystem()
     voice = not args.no_voice
+
+    if voice and settings.get("tts_enabled"):
+        preload()
 
     if args.daemon:
         run_daemon(args.daemon, llm, router, system, settings, voice)
