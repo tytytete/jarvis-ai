@@ -1,0 +1,5 @@
+{
+  "tts_enabled": true,
+  "language": "ru",
+  "log_level": "INFO"
+}

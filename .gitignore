@@ -1,0 +1,20 @@
+# Secrets — НИКОГДА не коммитить
+.env
+github_token.txt
+api токен.txt
+*.token
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Runtime-артефакты
+*.log
+queue.jsonl
+*.answers
+.DS_Store

@@ -1,0 +1,20 @@
+{
+  "aliases": {
+    "браузер": "Safari",
+    "хром": "Google Chrome",
+    "chrome": "Google Chrome",
+    "почта": "Mail",
+    "терминал": "Terminal",
+    "консоль": "Terminal",
+    "калькулятор": "Calculator",
+    "заметки": "Notes",
+    "музыка": "Music",
+    "календарь": "Calendar",
+    "фото": "Photos",
+    "настройки": "System Settings",
+    "системные настройки": "System Settings",
+    "finder": "Finder",
+    "текст": "TextEdit",
+    "блокнот": "TextEdit"
+  }
+}
