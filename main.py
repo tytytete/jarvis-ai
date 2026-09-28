@@ -28,7 +28,8 @@ log = get_logger("main")
 
 SYSTEM_PROMPT = (
     "Ты — Джарвис, персональный ИИ-ассистент на компьютере пользователя. "
-    "Отвечай кратко, по-русски и по делу."
+    "Отвечай по-русски и ОЧЕНЬ кратко: одно короткое предложение или несколько слов. "
+    "Без вступлений, без списков и без лишних пояснений, если пользователь явно не просит подробности."
 )
 
 HELP_TEXT = (
@@ -45,16 +46,20 @@ HELP_TEXT = (
 )
 
 
-def dispatch(text, llm, router, system, settings, voice=True):
+def dispatch(text, llm, router, system, settings, history=None, voice=True):
     """Fast-Path → локально, иначе Slow-Path → LLM. Возвращает текст ответа."""
     result = router.route(text)
 
     if not result["matched"]:
         log.info("slow-path: %s", text)
-        res = llm.ask(text, system_prompt=SYSTEM_PROMPT)
+        res = llm.ask(text, system_prompt=SYSTEM_PROMPT, history=history)
         answer = res["answer"] or res["error"] or "Нет ответа."
-        if res["ok"] and voice and settings.get("tts_enabled"):
-            speak(answer)
+        if res["ok"]:
+            history.append({"role": "user", "content": text})
+            history.append({"role": "assistant", "content": answer})
+            del history[:-2]  # храним контекст 2 предыдущих сообщений (вопрос+ответ)
+            if voice and settings.get("tts_enabled"):
+                speak(answer)
         return answer
 
     intent = result["intent"]
@@ -124,6 +129,7 @@ def dispatch(text, llm, router, system, settings, voice=True):
 
 
 def run_repl(llm, router, system, settings, voice):
+    history = []
     print("Джарвис запущен. Вводи команды (для выхода: «стоп» или Ctrl+D).")
     while True:
         try:
@@ -133,7 +139,7 @@ def run_repl(llm, router, system, settings, voice):
             break
         if not text:
             continue
-        answer = dispatch(text, llm, router, system, settings, voice=voice)
+        answer = dispatch(text, llm, router, system, settings, history=history, voice=voice)
         if answer is None:
             print("Пока!")
             break
@@ -141,12 +147,13 @@ def run_repl(llm, router, system, settings, voice):
 
 
 def run_once(text, llm, router, system, settings, voice):
-    answer = dispatch(text, llm, router, system, settings, voice=voice)
+    answer = dispatch(text, llm, router, system, settings, history=[], voice=voice)
     if answer is not None:
         print(answer)
 
 
 def run_daemon(queue_path, llm, router, system, settings, voice):
+    history = []
     answers_path = queue_path + ".answers"
     log.info("daemon: очередь=%s ответы=%s", queue_path, answers_path)
     seen = 0
@@ -166,7 +173,7 @@ def run_daemon(queue_path, llm, router, system, settings, voice):
                 line = line.strip()
                 if not line:
                     continue
-                answer = dispatch(line, llm, router, system, settings, voice=voice)
+                answer = dispatch(line, llm, router, system, settings, history=history, voice=voice)
                 with open(answers_path, "a", encoding="utf-8") as f:
                     f.write("Q: %s\nA: %s\n\n" % (line, answer))
         except Exception:

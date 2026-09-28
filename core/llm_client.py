@@ -27,14 +27,23 @@ class LLMClient:
         self.timeout = int(timeout or os.getenv("LLM_TIMEOUT", "45"))
         self.max_retries = int(max_retries or os.getenv("LLM_MAX_RETRIES", "4"))
 
-    def ask(self, question, system_prompt=None):
-        """Возвращает dict: {ok, answer, error, attempts, status}."""
+    def ask(self, question, system_prompt=None, history=None):
+        """Возвращает dict: {ok, answer, error, attempts, status}.
+
+        history — список предыдущих сообщений вида
+        [{"role": "user", "content": ...}, {"role": "assistant", "content": ...}].
+        """
         if not self.api_key:
             return self._result(
                 False, "", "API-ключ не задан. Добавь его в .env (ANYMODEL_API_KEY).", 0, None
             )
 
-        payload = {"model": self.model, "input": question}
+        if history:
+            input_value = list(history) + [{"role": "user", "content": question}]
+        else:
+            input_value = question
+
+        payload = {"model": self.model, "input": input_value}
         if system_prompt:
             payload["instructions"] = system_prompt
 
