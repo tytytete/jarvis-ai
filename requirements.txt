@@ -1,25 +1,25 @@
 # Базовый MVP работает на стандартной библиотеке Python 3.11+.
 
-# --- Голос (XTTS v2, клонирование голоса Джарвиса) ---
-# Проверенная рабочая связка (macOS arm64, Python 3.11):
-#   .venv/bin/pip install torch==2.5.1 torchaudio==2.5.1
-#   .venv/bin/pip install coqui-tts
-#   .venv/bin/pip install "transformers<5"
-# Важно:
-#   - torch >= 2.9 требует torchcodec + системный FFmpeg (лишняя возня) — берём 2.5.1.
-#   - transformers 5.x ломает coqui-tts (удалён isin_mps_friendly) — берём <5.
-#   - вокодер XTTS на Apple Silicon падает на MPS, поэтому синтез идёт на CPU.
+# --- Голос (TTS) ---
+# XTTS v2 (клонирование голоса) — опционально, тяжёлое:
+#   .venv/bin/pip install torch==2.5.1 torchaudio==2.5.1 coqui-tts "transformers<5"
+#   (вокодер XTTS на Apple Silicon падает на MPS → синтез на CPU)
 coqui-tts>=0.27.0
 torch==2.5.1
 torchaudio==2.5.1
 transformers<5
 
-# --- Speech-to-Text (локально, следующий этап) ---
-# faster-whisper>=1.0.0
+# Быстрый нейросетевой TTS (tts_engine="edge")
+edge-tts>=7.2.0
+
+# --- Голос (STT, офлайн) ---
+# wake-word «Джарвис» + распознавание команд
+vosk>=0.3.44
+sounddevice>=0.4
+# Модель (скачать один раз):
+#   curl -L -o /tmp/vsm.zip https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip
+#   unzip -o -q /tmp/vsm.zip -d .cache
 
 # --- OCR (следующий этап) ---
 # easyocr>=1.7.0
 # rapidocr-onnxruntime>=1.3.0
-
-# Быстрый нейросетевой TTS (опционально, tts_engine=edge)
-edge-tts>=7.2.0

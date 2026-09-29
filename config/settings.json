@@ -4,6 +4,7 @@
   "tts_edge_voice": "ru-RU-DmitryNeural",
   "tts_reference_voice": "voice.mp3",
   "tts_language": "ru",
+  "stt_model_path": ".cache/vosk-model-small-ru-0.22",
   "language": "ru",
   "log_level": "INFO"
 }

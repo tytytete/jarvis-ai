@@ -10,6 +10,7 @@
 import argparse
 import datetime
 import os
+import subprocess
 import time
 
 from utils.env import load_env
@@ -212,11 +213,54 @@ def run_daemon(queue_path, llm, router, system, settings, voice):
             time.sleep(2.0)
 
 
+def _ack():
+    """Короткий звуковой отклик после wake-word."""
+    try:
+        subprocess.Popen(
+            ["afplay", "/System/Library/Sounds/Ping.aiff"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        pass
+
+
+def run_voice(llm, router, system, settings, voice):
+    """Режим как Siri: ждём wake-word «Джарвис», затем команду голосом."""
+    from core.voice.stt import VoiceListener
+    try:
+        listener = VoiceListener()
+    except Exception as exc:
+        print("Не удалось запустить голосовой ввод: %s" % exc)
+        print("Убедись, что модель Vosk лежит в .cache/vosk-model-small-ru-0.22 и есть доступ к микрофону.")
+        return
+
+    history = []
+    print("Голосовой режим. Скажи «Джарвис», затем команду. (Ctrl+C — выход)")
+    while True:
+        try:
+            tail = listener.listen_for_wake()
+        except KeyboardInterrupt:
+            break
+        if tail is None:
+            continue
+        _ack()
+        command = tail or listener.listen_for_command()
+        if not command:
+            continue
+        print(">", command)
+        answer = dispatch(command, llm, router, system, settings, history=history, voice=voice)
+        if answer is None:
+            print("Пока!")
+            break
+        print(answer)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="Джарвис — гибридный ИИ-ассистент")
     parser.add_argument("text", nargs="*", help="команда или вопрос (выполнит и завершит)")
     parser.add_argument("--ask", metavar="ВОПРОС", help="задать вопрос нейросети и выйти")
     parser.add_argument("--daemon", metavar="QUEUE_FILE", help="фоновый режим: очередь из файла")
+    parser.add_argument("--listen", action="store_true", help="голосовой режим с wake-word «Джарвис»")
     parser.add_argument("--no-voice", action="store_true", help="не озвучивать ответы")
     return parser
 
@@ -234,6 +278,10 @@ def main(argv=None):
 
     if args.daemon:
         run_daemon(args.daemon, llm, router, system, settings, voice)
+        return
+
+    if args.listen:
+        run_voice(llm, router, system, settings, voice)
         return
 
     text = " ".join(args.text)
