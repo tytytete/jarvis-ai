@@ -55,7 +55,15 @@ def _edge_synthesize(text, voice, out_path):
     import edge_tts
 
     async def go():
-        await edge_tts.Communicate(text, voice).save(out_path)
+        last = None
+        for attempt in range(3):
+            try:
+                await edge_tts.Communicate(text, voice).save(out_path)
+                return
+            except Exception as exc:
+                last = exc
+                await asyncio.sleep(0.7 * (attempt + 1))
+        raise last or RuntimeError("edge-tts failed")
 
     asyncio.run(go())
 

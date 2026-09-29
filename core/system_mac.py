@@ -28,7 +28,9 @@ class MacSystem(BaseSystem):
             return False, "", str(e)
 
     def _osascript(self, script, timeout=10):
-        return self._run(["osascript", "-e", script], timeout=timeout)[0]
+        # exit-код osascript ненадёжен (0 даже при ошибке) — проверяем ещё и stderr
+        ok, _, err = self._run(["osascript", "-e", script], timeout=timeout)
+        return ok and not err.strip()
 
     # ---- приложения -------------------------------------------------------
 
@@ -54,6 +56,9 @@ class MacSystem(BaseSystem):
             base = os.path.basename(name)
             if base.endswith(".app"):
                 name = base[:-4]
+        # Если приложение не установлено/не найдено — точно не «успешно».
+        if self.search_application(name) is None:
+            return False
         if self._osascript(f'quit app "{name}"'):
             return True
         return self._osascript(f'tell application "{name}" to quit')

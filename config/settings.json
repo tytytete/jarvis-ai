@@ -1,6 +1,6 @@
 {
   "tts_enabled": true,
-  "tts_engine": "say",
+  "tts_engine": "edge", // "say" - siri "edge" - edge "xtts" - xtts
   "tts_edge_voice": "ru-RU-DmitryNeural",
   "tts_reference_voice": "voice.mp3",
   "tts_language": "ru",

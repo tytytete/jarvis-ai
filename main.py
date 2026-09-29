@@ -33,6 +33,16 @@ SYSTEM_PROMPT = (
     "Без вступлений, без списков и без лишних пояснений, если пользователь явно не просит подробности."
 )
 
+SOLVE_PROMPT = (
+    "Пользователь дал команду, которую не удалось выполнить автоматически. "
+    "Выполни её сам с помощью доступных инструментов: например run_shell (команды терминала "
+    "macOS: find, open, mkdir, mv, rm, ls и т.д.), web_search, open_application и другие. "
+    "Если получилось — кратко сообщи результат по-русски. "
+    "Если ты НЕ можешь решить задачу — ответь ровно одним символом: 0"
+)
+
+UNKNOWN_ANSWER = "Я не знаю, как это решить."
+
 HELP_TEXT = (
     "Я умею (локально, без нейросети):\n"
     "- «открой Safari» / «запусти хром» / «включи музыку» — открыть приложение\n"
@@ -47,26 +57,32 @@ HELP_TEXT = (
 )
 
 
+def _slow_path(text, llm, history, system_prompt=SYSTEM_PROMPT):
+    """Отправляет текст в LLM (с инструментами), обновляет историю, возвращает ответ."""
+    res = llm.ask(
+        text,
+        system_prompt=system_prompt,
+        history=history,
+        tools=TOOL_SPECS,
+        tool_executor=execute_tool,
+    )
+    answer = res["answer"] or res["error"] or "Нет ответа."
+    if res["ok"]:
+        history.append({"role": "user", "content": text})
+        history.append({"role": "assistant", "content": answer})
+        del history[:-2]  # храним контекст 2 предыдущих сообщений (вопрос+ответ)
+    return answer
+
+
 def dispatch(text, llm, router, system, settings, history=None, voice=True):
     """Fast-Path → локально, иначе Slow-Path → LLM. Возвращает текст ответа."""
     result = router.route(text)
 
     if not result["matched"]:
         log.info("slow-path: %s", text)
-        res = llm.ask(
-            text,
-            system_prompt=SYSTEM_PROMPT,
-            history=history,
-            tools=TOOL_SPECS,
-            tool_executor=execute_tool,
-        )
-        answer = res["answer"] or res["error"] or "Нет ответа."
-        if res["ok"]:
-            history.append({"role": "user", "content": text})
-            history.append({"role": "assistant", "content": answer})
-            del history[:-2]  # храним контекст 2 предыдущих сообщений (вопрос+ответ)
-            if voice and settings.get("tts_enabled"):
-                speak(answer)
+        answer = _slow_path(text, llm, history)
+        if voice and settings.get("tts_enabled"):
+            speak(answer)
         return answer
 
     intent = result["intent"]
@@ -132,7 +148,15 @@ def dispatch(text, llm, router, system, settings, history=None, voice=True):
 
     if ok:
         return "Готово: %s." % detail if detail else "Готово."
-    return "Не удалось выполнить «%s». Проверь название." % (detail or intent)
+
+    # Команда не выполнилась локально → пробуем решить через ИИ (run_shell и др.)
+    log.info("fast-path не сработал, передаю ИИ: %s", text)
+    answer = _slow_path(text, llm, history, system_prompt=SOLVE_PROMPT)
+    if (answer or "").strip().strip('"').strip("'") == "0":
+        return UNKNOWN_ANSWER
+    if voice and settings.get("tts_enabled"):
+        speak(answer)
+    return answer
 
 
 def run_repl(llm, router, system, settings, voice):

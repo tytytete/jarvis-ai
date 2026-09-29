@@ -244,6 +244,10 @@ class Router:
         target = self._clean_target(m.group(2))
         if not target:
             return None
+        # «закрой всё / все кроме X» — сложная многошаговая задача, отдаём ИИ,
+        # иначе Fast-Path попытается закрыть приложение с именем «все кроме vs code».
+        if re.match(r"^(все|всё|всe|all|everything)\b", target) or re.search(r"\b(кроме|except)\b", target):
+            return None
         return self._ok(self.INTENT_CLOSE_APP, target=self._resolve_alias(target))
 
     def _match_type_text(self, low):
