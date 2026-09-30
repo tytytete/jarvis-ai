@@ -1,15 +1,15 @@
 """Инструменты (Tool Calling) для Slow-Path.
 
 Каждый инструмент: (1) JSON-схема для API, (2) функция-исполнитель
-`executor(name, arguments_dict) -> str`. DeepSeek сам выбирает, что вызвать.
+`executor(name, arguments_dict) -> str`. Модель сама выбирает, что вызвать.
 """
-import base64
 import datetime
 import html as html_lib
 import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -26,6 +26,9 @@ UA = (
 
 HOME = os.path.expanduser("~")
 
+# OCR лениво грузится один раз
+_OCR = None
+
 
 def _clean(text):
     text = html_lib.unescape(text or "")
@@ -33,7 +36,7 @@ def _clean(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
-# --- реализация инструментов ------------------------------------------------
+# --- интернет --------------------------------------------------------------
 
 def _fetch_ddg_page(query):
     q = urllib.parse.quote(query)
@@ -55,7 +58,6 @@ def _fetch_ddg_page(query):
 
 def _web_search(query, max_results=5):
     page = _fetch_ddg_page(query)
-
     results = []
     blocks = re.split(r'<div class="result results_links', page)[1:]
     for block in blocks:
@@ -71,7 +73,6 @@ def _web_search(query, max_results=5):
         results.append({"title": title, "url": link, "snippet": snippet})
         if len(results) >= max_results:
             break
-
     if not results:
         return "По запросу «%s» ничего не найдено." % query
     lines = []
@@ -79,6 +80,8 @@ def _web_search(query, max_results=5):
         lines.append("%d. %s\n   %s\n   %s" % (i, r["title"], r["snippet"], r["url"]))
     return "\n\n".join(lines)
 
+
+# --- файлы -----------------------------------------------------------------
 
 def _resolve_path(path):
     path = os.path.expanduser(path or "")
@@ -170,120 +173,6 @@ def _calculate(expression):
     return "Результат: %s" % value if value is not None else "Не удалось посчитать."
 
 
-_OCR_ENGINE = None
-
-
-def _get_ocr():
-    """Лениво грузит RapidOCR (локально, без токенов и без API)."""
-    global _OCR_ENGINE
-    if _OCR_ENGINE is None:
-        try:
-            from rapidocr_onnxruntime import RapidOCR
-            _OCR_ENGINE = RapidOCR()
-        except Exception as exc:
-            log.warning("RapidOCR не загрузился: %s", exc)
-            _OCR_ENGINE = None
-    return _OCR_ENGINE
-
-
-def _screenshot():
-    """Скриншот всех экранов во временный PNG. Возвращает путь или None."""
-    import tempfile
-    fd, path = tempfile.mkstemp(suffix=".png")
-    os.close(fd)
-    ok = subprocess.run(
-        ["screencapture", "-x", path], capture_output=True, text=True
-    ).returncode == 0
-    if not ok:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-        return None
-    return path
-
-
-def _ocr_text(path):
-    engine = _get_ocr()
-    if engine is None:
-        return "OCR недоступен (не установлен rapidocr-onnxruntime)."
-    try:
-        result, _ = engine(path)
-    except Exception as exc:
-        return "OCR недоступен: %s" % exc
-    if not result:
-        return ""
-    # сортируем сверху вниз и слева направо, берём только текст
-    items = sorted(result, key=lambda r: (r[0][0][1], r[0][0][0]))
-    lines = [r[1] for r in items if r[1]]
-    return "\n".join(lines)
-
-
-def _vision_text(path, question):
-    """Скриншот для vision-модели. Из разрешённых трёх моделей картины видит только am/free."""
-    import urllib.parse
-    key = os.getenv("ANYMODEL_API_KEY", "")
-    base = os.getenv("ANYMODEL_BASE_URL", "https://anymodel.org/v1").rstrip("/")
-    model = os.getenv("ANYMODEL_VISION_MODEL", "am/free")
-    if not key:
-        return "нет API-ключа для vision"
-    b64 = base64.b64encode(open(path, "rb").read()).decode()
-    payload = {
-        "model": model,
-        "input": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": "Посмотри на скриншот и ответь кратко по-русски. " + question},
-                    {"type": "input_image", "image_url": "data:image/png;base64," + b64},
-                ],
-            }
-        ],
-    }
-    req = urllib.request.Request(
-        base + "/responses",
-        data=json.dumps(payload).encode(),
-        method="POST",
-        headers={
-            "Authorization": "Bearer " + key,
-            "Content-Type": "application/json",
-            "User-Agent": UA,
-        },
-    )
-    with urllib.request.urlopen(req, timeout=90) as resp:
-        data = json.loads(resp.read().decode("utf-8", "replace"))
-    text = ""
-    for it in data.get("output", []):
-        if it.get("type") == "message":
-            for c in it.get("content", []):
-                if c.get("type") in ("output_text", "text"):
-                    text += c.get("text", "")
-    return text.strip() or "не удалось разобрать изображение"
-
-
-def _look_at_screen(question=""):
-    """Скриншот по запросу: OCR текста + (по вопросу) vision-описание."""
-    path = _screenshot()
-    if path is None:
-        return ("Не удалось сделать скриншот. Дай терминалу доступ к записи экрана: "
-                "Системные настройки → Конфиденциальность → Запись экрана.")
-    try:
-        text = _ocr_text(path)
-        if question:
-            q = question
-            if text:
-                q += "\n(OCR-текст на экране: %s)" % text[:1500]
-            return _vision_text(path, q)
-        if text:
-            return "Текст на экране:\n" + text
-        return _vision_text(path, "Что происходит на экране? Опиши кратко.")
-    finally:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-
-
 def _run_shell(command, timeout=30):
     try:
         proc = subprocess.run(
@@ -299,6 +188,66 @@ def _run_shell(command, timeout=30):
         return "Команда превысила лимит времени (%ds)." % timeout
     except OSError as exc:
         return "Не удалось выполнить команду: %s" % exc
+
+
+# --- зрение (OCR локально, без API и токенов) -------------------------------
+
+def _get_ocr():
+    global _OCR
+    if _OCR is None:
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+            _OCR = RapidOCR()
+        except Exception as exc:
+            log.warning("RapidOCR не загрузился: %s", exc)
+            _OCR = False
+    return _OCR or None
+
+
+def _screenshot():
+    fd, path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    ok = subprocess.run(["screencapture", "-x", path], capture_output=True).returncode == 0
+    if not ok:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return None
+    return path
+
+
+def _ocr_text(path):
+    engine = _get_ocr()
+    if engine is None:
+        return None
+    try:
+        result, _ = engine(path)
+    except Exception as exc:
+        log.warning("OCR: %s", exc)
+        return None
+    if not result:
+        return ""
+    items = sorted(result, key=lambda r: (r[0][0][1], r[0][0][0]))
+    return "\n".join(r[1] for r in items if r[1])
+
+
+def _look_at_screen(question=""):
+    """Скриншот по запросу → локальный OCR текста (без API, без токенов)."""
+    path = _screenshot()
+    if path is None:
+        return ("Не удалось сделать скриншот. Дай терминалу право «Запись экрана»: "
+                "Системные настройки → Конфиденциальность и безопасность → Запись экрана.")
+    try:
+        text = _ocr_text(path)
+        if text:
+            return "Текст на экране:\n" + text
+        return "На экране не распознано текста."
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 # --- схемы и диспетчер ------------------------------------------------------
@@ -415,7 +364,7 @@ TOOL_SPECS = [
     {
         "type": "function",
         "name": "look_at_screen",
-        "description": "Делает скриншот и возвращает текст на экране (OCR). Если задан конкретный вопрос — возвращает vision-описание того, что видно на экране.",
+        "description": "Делает скриншот и возвращает распознанный текст с экрана (локальный OCR, без API).",
         "parameters": {
             "type": "object",
             "properties": {"question": {"type": "string", "description": "опциональный вопрос о содержимом экрана"}},
@@ -450,11 +399,6 @@ def execute_tool(name, arguments):
     try:
         return str(handler(**args))
     except TypeError:
-        # модель могла не передать нужные аргументы
-        try:
-            return str(handler(arguments.get(next(iter(handler.__code__.co_varnames), "x")))) if False else str(handler())
-        except Exception:
-            pass
         return "Ошибка вызова инструмента %s: неверные аргументы" % name
     except Exception as exc:
         log.warning("tool %s failed: %s", name, exc)

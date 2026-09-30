@@ -130,6 +130,12 @@ class LLMClient:
             total_attempts += self._last_attempts or 1
 
             if data is None:
+                # Ошибка (сеть/HTTP/таймаут) → не теряемся, пробуем следующую модель вправо
+                log.warning("модель %s ошибка: %s", current_model, self._last_error)
+                if model_idx < len(self.models) - 1:
+                    model_idx += 1
+                    log.info("переключаюсь вправо на %s", self.models[model_idx])
+                    continue
                 return self._result(
                     False, self._fallback_message(), self._last_error,
                     total_attempts, self._last_status,
