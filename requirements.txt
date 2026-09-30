@@ -20,6 +20,5 @@ sounddevice>=0.4
 #   curl -L -o /tmp/vsm.zip https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip
 #   unzip -o -q /tmp/vsm.zip -d .cache
 
-# --- OCR (следующий этап) ---
-# easyocr>=1.7.0
-# rapidocr-onnxruntime>=1.3.0
+# --- Зрение (OCR локально, vision через anymodel) ---
+rapidocr-onnxruntime>=1.3.0

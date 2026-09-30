@@ -3,6 +3,7 @@
 Каждый инструмент: (1) JSON-схема для API, (2) функция-исполнитель
 `executor(name, arguments_dict) -> str`. DeepSeek сам выбирает, что вызвать.
 """
+import base64
 import datetime
 import html as html_lib
 import json
@@ -169,6 +170,113 @@ def _calculate(expression):
     return "Результат: %s" % value if value is not None else "Не удалось посчитать."
 
 
+_OCR_ENGINE = None
+
+
+def _get_ocr():
+    """Лениво грузит RapidOCR (локально, без токенов)."""
+    global _OCR_ENGINE
+    if _OCR_ENGINE is None:
+        from rapidocr_onnxruntime import RapidOCR
+        _OCR_ENGINE = RapidOCR()
+    return _OCR_ENGINE
+
+
+def _screenshot():
+    """Скриншот всех экранов во временный PNG. Возвращает путь или None."""
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    ok = subprocess.run(
+        ["screencapture", "-x", path], capture_output=True, text=True
+    ).returncode == 0
+    if not ok:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return None
+    return path
+
+
+def _ocr_text(path):
+    try:
+        result, _ = _get_ocr()(path)
+    except Exception as exc:
+        return "OCR недоступен: %s" % exc
+    if not result:
+        return ""
+    # сортируем сверху вниз и слева направо, берём только текст
+    items = sorted(result, key=lambda r: (r[0][0][1], r[0][0][0]))
+    lines = [r[1] for r in items if r[1]]
+    return "\n".join(lines)
+
+
+def _vision_text(path, question):
+    """Отправляет скриншот vision-модели и возвращает её описание."""
+    import urllib.parse
+    key = os.getenv("ANYMODEL_API_KEY", "")
+    base = os.getenv("ANYMODEL_BASE_URL", "https://anymodel.org/v1").rstrip("/")
+    model = os.getenv("ANYMODEL_VISION_MODEL", "cx/gpt-6-luna")
+    if not key:
+        return "нет API-ключа для vision"
+    b64 = base64.b64encode(open(path, "rb").read()).decode()
+    payload = {
+        "model": model,
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "Посмотри на скриншот и ответь кратко по-русски. " + question},
+                    {"type": "input_image", "image_url": "data:image/png;base64," + b64},
+                ],
+            }
+        ],
+    }
+    req = urllib.request.Request(
+        base + "/responses",
+        data=json.dumps(payload).encode(),
+        method="POST",
+        headers={
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json",
+            "User-Agent": UA,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=90) as resp:
+        data = json.loads(resp.read().decode("utf-8", "replace"))
+    text = ""
+    for it in data.get("output", []):
+        if it.get("type") == "message":
+            for c in it.get("content", []):
+                if c.get("type") in ("output_text", "text"):
+                    text += c.get("text", "")
+    return text.strip() or "не удалось разобрать изображение"
+
+
+def _look_at_screen(question=""):
+    """Скриншот по запросу: OCR текста + (по вопросу) vision-описание."""
+    path = _screenshot()
+    if path is None:
+        return ("Не удалось сделать скриншот. Дай терминалу доступ к записи экрана: "
+                "Системные настройки → Конфиденциальность → Запись экрана.")
+    try:
+        text = _ocr_text(path)
+        if question:
+            q = question
+            if text:
+                q += "\n(OCR-текст на экране: %s)" % text[:1500]
+            return _vision_text(path, q)
+        if text:
+            return "Текст на экране:\n" + text
+        return _vision_text(path, "Что происходит на экране? Опиши кратко.")
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
 def _run_shell(command, timeout=30):
     try:
         proc = subprocess.run(
@@ -297,6 +405,16 @@ TOOL_SPECS = [
             "required": ["command"],
         },
     },
+    {
+        "type": "function",
+        "name": "look_at_screen",
+        "description": "Делает скриншот и возвращает текст на экране (OCR). Если задан конкретный вопрос — возвращает vision-описание того, что видно на экране.",
+        "parameters": {
+            "type": "object",
+            "properties": {"question": {"type": "string", "description": "опциональный вопрос о содержимом экрана"}},
+            "required": [],
+        },
+    },
 ]
 
 _HANDLERS = {
@@ -312,6 +430,7 @@ _HANDLERS = {
     "open_application": _open_application,
     "calculate": _calculate,
     "run_shell": _run_shell,
+    "look_at_screen": _look_at_screen,
 }
 
 
