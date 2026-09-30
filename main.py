@@ -75,6 +75,11 @@ def _slow_path(text, llm, history, system_prompt=SYSTEM_PROMPT):
     return answer
 
 
+def _tts(text, voice, settings):
+    if text is not None and voice and settings.get("tts_enabled"):
+        speak(text)
+
+
 def dispatch(text, llm, router, system, settings, history=None, voice=True):
     """Fast-Path → локально, иначе Slow-Path → LLM. Возвращает текст ответа."""
     result = router.route(text)
@@ -82,26 +87,34 @@ def dispatch(text, llm, router, system, settings, history=None, voice=True):
     if not result["matched"]:
         log.info("slow-path: %s", text)
         answer = _slow_path(text, llm, history)
-        if voice and settings.get("tts_enabled"):
-            speak(answer)
+        _tts(answer, voice, settings)
         return answer
 
     intent = result["intent"]
     if intent == Router.INTENT_EXIT:
         return None
     if intent == Router.INTENT_HELP:
-        return HELP_TEXT
+        answer = HELP_TEXT
+        _tts(answer, voice, settings)
+        return answer
 
     # Ответы без обращения к системе
     if intent == Router.INTENT_TIME:
-        return "Сейчас " + datetime.datetime.now().strftime("%H:%M") + "."
+        answer = "Сейчас " + datetime.datetime.now().strftime("%H:%M") + "."
+        _tts(answer, voice, settings)
+        return answer
     if intent == Router.INTENT_DATE:
-        return "Сегодня " + datetime.datetime.now().strftime("%d.%m.%Y") + "."
+        answer = "Сегодня " + datetime.datetime.now().strftime("%d.%m.%Y") + "."
+        _tts(answer, voice, settings)
+        return answer
     if intent == Router.INTENT_MATH:
         value = evaluate_math(result.get("expression", ""))
         if value is None:
-            return "Не смог посчитать «%s» — проверь выражение." % result.get("expression", "")
-        return "Результат: %s." % value
+            answer = "Не смог посчитать «%s» — проверь выражение." % result.get("expression", "")
+        else:
+            answer = "Результат: %s." % value
+        _tts(answer, voice, settings)
+        return answer
 
     # Действия через system
     ok = False
@@ -137,8 +150,11 @@ def dispatch(text, llm, router, system, settings, history=None, voice=True):
     elif intent == Router.INTENT_SCREENSHOT:
         path = system.screenshot()
         if path:
-            return "Скриншот сохранён: %s" % path
-        return "Не удалось сделать скриншот."
+            answer = "Скриншот сохранён: %s" % path
+        else:
+            answer = "Не удалось сделать скриншот."
+        _tts(answer, voice, settings)
+        return answer
     elif intent == Router.INTENT_LOCK:
         ok = system.lock_screen()
     elif intent == Router.INTENT_SLEEP:
@@ -148,15 +164,16 @@ def dispatch(text, llm, router, system, settings, history=None, voice=True):
         detail = result.get("text", "")
 
     if ok:
-        return "Готово: %s." % detail if detail else "Готово."
+        answer = "Готово: %s." % detail if detail else "Готово."
+        _tts(answer, voice, settings)
+        return answer
 
     # Команда не выполнилась локально → пробуем решить через ИИ (run_shell и др.)
     log.info("fast-path не сработал, передаю ИИ: %s", text)
     answer = _slow_path(text, llm, history, system_prompt=SOLVE_PROMPT)
     if (answer or "").strip().strip('"').strip("'") == "0":
-        return UNKNOWN_ANSWER
-    if voice and settings.get("tts_enabled"):
-        speak(answer)
+        answer = UNKNOWN_ANSWER
+    _tts(answer, voice, settings)
     return answer
 
 
