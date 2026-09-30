@@ -41,10 +41,10 @@ class LLMClient:
         self.timeout = int(timeout or os.getenv("LLM_TIMEOUT", "45"))
         self.max_retries = int(max_retries or os.getenv("LLM_MAX_RETRIES", "4"))
 
-        # Модели: primary + fallbacks через запятую в ANYMODEL_MODEL / ANYMODEL_FALLBACK
+        # Модели строго заданы пользователем: ds/deepseek-v4-flash -> v4-pro -> am/free.
         self.models = self._parse_models(
-            model or os.getenv("ANYMODEL_MODEL", "cx/gpt-6-luna"),
-            os.getenv("ANYMODEL_FALLBACK", "am/free,ds/deepseek-v4-pro"),
+            model or os.getenv("ANYMODEL_MODEL", "ds/deepseek-v4-flash"),
+            os.getenv("ANYMODEL_FALLBACK", "ds/deepseek-v4-pro,am/free"),
         )
         self._last_attempts = 0
         self._last_status = None
@@ -58,7 +58,7 @@ class LLMClient:
                 m = m.strip()
                 if m and m not in models:
                     models.append(m)
-        return models or ["cx/gpt-6-luna"]
+        return models or ["ds/deepseek-v4-flash"]
 
     def _post(self, payload):
         url = self.base_url + "/responses"
@@ -105,7 +105,7 @@ class LLMClient:
         return None
 
     def ask(self, question, system_prompt=None, history=None, tools=None, tool_executor=None,
-            max_tool_rounds=5, max_junk=4):
+            max_tool_rounds=5):
         """Возвращает dict: {ok, answer, error, attempts, status}."""
         if not self.api_key:
             return self._result(False, "", "API-ключ не задан (ANYMODEL_API_KEY в .env).", 0, None)
@@ -117,7 +117,6 @@ class LLMClient:
 
         total_attempts = 0
         model_idx = 0
-        junk_count = 0
 
         for _round in range(max_tool_rounds + 1):
             current_model = self.models[model_idx]
@@ -147,24 +146,23 @@ class LLMClient:
                     return self._result(True, answer, None, total_attempts, 200)
 
                 if answer:
-                    junk_count += 1
-                    log.warning("мусорный ответ от %s (поп. %s/%s): %r",
-                                current_model, junk_count, max_junk, answer[:60])
-                    if junk_count <= max_junk:
-                        continue
-                    # Сменить модель
+                    # Модель отвечает мусором → пробуем следующую справа (не жжём токены на ретраи)
+                    log.warning("модель %s ответила мусором: %r", current_model, answer[:60])
                     if model_idx < len(self.models) - 1:
                         model_idx += 1
-                        junk_count = 0
-                        log.info("переключаюсь на модель %s", self.models[model_idx])
+                        log.info("переключаюсь вправо на %s", self.models[model_idx])
                         continue
-                    # Все модели исчерпаны
                     return self._result(
-                        False, "Сервис отвечает некорректно. Попробуй позже или спроси в чате.",
+                        False, "Сервис отвечает некорректно. Попробуй позже.",
                         "junk", total_attempts, 200,
                     )
 
                 # Пустой ответ
+                log.warning("модель %s вернула пустой ответ (%s)", current_model, total_attempts)
+                if model_idx < len(self.models) - 1:
+                    model_idx += 1
+                    log.info("переключаюсь вправо на %s", self.models[model_idx])
+                    continue
                 return self._result(
                     False, self._fallback_message(), "пустой ответ модели",
                     total_attempts, 200,

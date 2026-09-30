@@ -174,11 +174,15 @@ _OCR_ENGINE = None
 
 
 def _get_ocr():
-    """Лениво грузит RapidOCR (локально, без токенов)."""
+    """Лениво грузит RapidOCR (локально, без токенов и без API)."""
     global _OCR_ENGINE
     if _OCR_ENGINE is None:
-        from rapidocr_onnxruntime import RapidOCR
-        _OCR_ENGINE = RapidOCR()
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+            _OCR_ENGINE = RapidOCR()
+        except Exception as exc:
+            log.warning("RapidOCR не загрузился: %s", exc)
+            _OCR_ENGINE = None
     return _OCR_ENGINE
 
 
@@ -200,8 +204,11 @@ def _screenshot():
 
 
 def _ocr_text(path):
+    engine = _get_ocr()
+    if engine is None:
+        return "OCR недоступен (не установлен rapidocr-onnxruntime)."
     try:
-        result, _ = _get_ocr()(path)
+        result, _ = engine(path)
     except Exception as exc:
         return "OCR недоступен: %s" % exc
     if not result:
@@ -213,11 +220,11 @@ def _ocr_text(path):
 
 
 def _vision_text(path, question):
-    """Отправляет скриншот vision-модели и возвращает её описание."""
+    """Скриншот для vision-модели. Из разрешённых трёх моделей картины видит только am/free."""
     import urllib.parse
     key = os.getenv("ANYMODEL_API_KEY", "")
     base = os.getenv("ANYMODEL_BASE_URL", "https://anymodel.org/v1").rstrip("/")
-    model = os.getenv("ANYMODEL_VISION_MODEL", "cx/gpt-6-luna")
+    model = os.getenv("ANYMODEL_VISION_MODEL", "am/free")
     if not key:
         return "нет API-ключа для vision"
     b64 = base64.b64encode(open(path, "rb").read()).decode()
