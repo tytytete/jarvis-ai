@@ -2,6 +2,7 @@ import difflib
 import re
 
 from . import config
+from utils.fuzzy import find_best
 
 
 class Router:
@@ -98,8 +99,23 @@ class Router:
         return target.strip()
 
     def _resolve_alias(self, name):
+        """Точный alias → фаззи-подбор по биграммам (допуск опечаток)."""
         key = name.strip().lower()
-        return self.aliases.get(key, name)
+        if key in self.aliases:
+            return self.aliases[key]
+
+        if len(key) >= 3:
+            # 1) ближайший ключ alias (кириллица/латиница)
+            alias_keys = [k for k in self.aliases if k.strip()]
+            best_key, score = find_best(key, alias_keys)
+            if best_key is not None:
+                return self.aliases[best_key]
+            # 2) ближайшее каноническое имя приложения
+            values = [v for v in set(self.aliases.values()) if isinstance(v, str) and v.strip()]
+            best_val, _ = find_best(key, values)
+            if best_val is not None:
+                return best_val
+        return name
 
     def _ok(self, intent, **payload):
         result = {"matched": True, "intent": intent}
